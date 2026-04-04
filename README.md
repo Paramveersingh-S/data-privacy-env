@@ -26,3 +26,30 @@ PII leaks in logs and internal CRMs cost companies millions in compliance fines.
 ```bash
 openenv validate
 ./validate-submission.sh [https://scikitlearn10801-dataprivacyenv.hf.space](https://scikitlearn10801-dataprivacyenv.hf.space) .
+
+---
+
+## 🧠 Agent Reasoning Examples
+
+#### Hard Task: Right to be Forgotten (GDPR Compliance)
+To achieve a 1.0 score, the agent must perform a multi-step sequence:
+1. **Discovery**: `GET /users` to identify User 789.
+2. **Primary Deletion**: `DELETE /users/789`.
+3. **Audit**: `GET /logs` to find references to the deleted user.
+4. **Cleanup**: `DELETE /logs/log_4` and `DELETE /logs/log_5`.
+*This tests the agent's ability to maintain state and follow-through on complex data-integrity requirements.*
+
+---
+
+### 📜 Example Agent Trace (Gemma 4 31B)
+```text
+[START] task=easy_log_redaction env=DataPrivacyEnv model=google/gemma-4-31B-it
+[STEP] step=1 action={"method": "GET", "endpoint": "/logs"}
+[STEP] step=2 action={"method": "PATCH", "endpoint": "/logs/log_3", "payload": {"text": "REDACTED"}}
+[END] success=true score=1.000
+🛠️ Future Roadmap
+[ ] Dynamic PII Generation: Use LLMs to generate randomized logs to prevent agent overfitting.
+
+[ ] Multi-Agent Collaboration: One agent audits while another redacts.
+
+[ ] SQL Database Integration: Move from in-memory dictionaries to a real SQLite/Postgres simulation.
