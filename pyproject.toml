@@ -16,9 +16,8 @@ dependencies = [
     "openenv-core"
 ]
 
-# This is what the validator was missing:
 [project.scripts]
-server = "server.app:app"
+server = "server.app:main"
 
 [tool.setuptools]
 py-modules = ["env", "models"]
