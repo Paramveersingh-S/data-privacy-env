@@ -17,8 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-server = "server.app:main"
+server = "main:main"
 
 [tool.setuptools]
-packages = ["server"]
-py-modules = ["env", "models"]
+py-modules = ["env", "models", "main"]
