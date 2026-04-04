@@ -1,0 +1,20 @@
+name: "DataPrivacyEnv"
+version: "1.0.0"
+description: "An in-memory RL environment where an agent acts as a Data Privacy Officer, auditing and redacting leaked PII across internal company endpoints."
+
+# Pointing to the Pydantic models we built in models.py
+observation_type: "models:PrivacyObservation"
+action_type: "models:PrivacyAction"
+
+tasks:
+  - name: "easy_log_redaction"
+    description: "Find the leaked API key in the server logs and redact it."
+    expected_difficulty: "easy"
+  
+  - name: "medium_crm_audit"
+    description: "Scan the users endpoint and remove exposed passwords from 3 user profiles."
+    expected_difficulty: "medium"
+
+  - name: "hard_right_to_be_forgotten"
+    description: "Delete User ID 789 and find/delete all orphaned log entries associated with them."
+    expected_difficulty: "hard"
