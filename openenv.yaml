@@ -1,4 +1,4 @@
 name: data-privacy-env
 version: 1.0.0
 type: environment
-entry_point: main:app
+entry_point: server.app:app

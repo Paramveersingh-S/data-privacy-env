@@ -24,7 +24,7 @@ async def root():
 # 4. The 'main' function required by the pyproject.toml entry point
 # The validator calls this to spin up your environment programmatically
 def main():
-    uvicorn.run("main:app", host="0.0.0.0", port=7860, reload=False)
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
 
 if __name__ == "__main__":
     main()
