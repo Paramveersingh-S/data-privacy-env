@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "data-privacy-env"
 version = "1.0.0"
-description = "An OpenEnv environment for PII remediation tasks."
+description = "PII Remediation Environment"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi==0.110.0",
-    "uvicorn==0.27.1",
-    "pydantic==2.6.3",
-    "openai==1.13.3",
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "openai",
     "openenv-core"
 ]
 
@@ -20,5 +20,5 @@ dependencies = [
 server = "server.app:main"
 
 [tool.setuptools]
-py-modules = ["env", "models"]
 packages = ["server"]
+py-modules = ["env", "models"]
