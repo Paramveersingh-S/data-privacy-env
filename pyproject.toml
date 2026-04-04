@@ -1,23 +1,28 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "data-privacy-env"
 version = "1.0.0"
-description = "PII Remediation Environment"
+description = "A spec-compliant OpenEnv for PII remediation and GDPR tasks."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "pydantic",
-    "openai",
-    "openenv-core"
+    "fastapi>=0.104.0",
+    "pydantic>=2.0.0",
+    "uvicorn>=0.24.0",
+    "openai>=1.0.0",
+    "openenv-core>=0.2.0"
 ]
 
 [project.scripts]
+# This tells the validator how to run your environment
 server = "main:main"
 
 [tool.setuptools]
+# Since your files (env.py, models.py, main.py) are in the root
 py-modules = ["env", "models", "main"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["*.pyc", "__pycache__/*"]
