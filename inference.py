@@ -2,114 +2,97 @@ import os
 import sys
 import json
 from openai import OpenAI
-from openenv.core import make
 
-def run_inference():
-    # 1. Load Mandatory Environment Variables
-    api_base_url = os.getenv("API_BASE_URL")
-    model_name = os.getenv("MODEL_NAME")
-    hf_token = os.getenv("HF_TOKEN")
-
-    if not all([api_base_url, model_name, hf_token]):
-        print("Error: Missing required environment variables (API_BASE_URL, MODEL_NAME, HF_TOKEN)")
-        sys.exit(1)
-
-    # 2. Initialize the OpenAI Client
-    # We pass the HF Token as the API key to authenticate with the remote model
-    client = OpenAI(
-        base_url=api_base_url,
-        api_key=hf_token,
-    )
-
-    # 3. Initialize OpenEnv (With Phase 2 Try/Except Safety Net)
+try:
+    from openenv.core import make
+except ImportError:
     try:
-        # Connects to the local Dockerized instance running on port 7860
-        env = make("http://localhost:7860")
-    except ImportError as ie:
-        print(f"Import Error during initialization: {ie}")
+        from openenv import make
+    except ImportError:
+        print("Error: Could not import 'make' from openenv or openenv.core")
         sys.exit(1)
+
+
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-31B-it")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+if not HF_TOKEN:
+    print("Error: HF_TOKEN environment variable not set. Grader must provide this.")
+    sys.exit(1)
+
+# Initialize the standard OpenAI Client
+client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+
+def run_inference(task_name):
+    # Safely initialize the environment
+    try:
+        env = make("data-privacy-env")
+        obs = env.reset(task_name=task_name)
     except Exception as e:
-        print(f"Unhandled exception during environment initialization: {e}")
+        print(f"Failed to initialize environment: {e}")
         sys.exit(1)
+    
+    # 1. MANDATORY START LOG
+    print(f"[START] task={task_name} env=DataPrivacyEnv model={MODEL_NAME}")
+    
+    done = False
+    step = 0
+    total_reward = 0.0
+    rewards = []
 
-    # 4. Agent Interaction Loop
-    try:
-        # Reset environment to get the initial observation
-        obs = env.reset()
+    # Run for a maximum of 10 steps to prevent infinite loops
+    while not done and step < 10:
+        step += 1
         
-        # --- [START] MANDATORY LOG ---
-        print(f"[START] {json.dumps({'observation': obs})}")
-
-        done = False
-        step_count = 0
-        max_steps = 15  # Prevents infinite loops and ensures we stay under the 20 min limit
-        total_reward = 0.0
-
-        # System prompt instructing the LLM on how to behave in your specific environment
-        system_prompt = (
-            "You are a Data Privacy Remediation Agent. Your goal is to solve compliance tasks based on observations. "
-            "You must output ONLY valid JSON representing your next action. "
-            "Your output must contain exactly these keys: 'method', 'endpoint', and 'payload'."
-        )
-
-        # Message history to feed the LLM
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Initial Observation: {json.dumps(obs)}"}
-        ]
-
-        while not done and step_count < max_steps:
-            # Ask the LLM for the next action
+        prompt = f"""
+        You are a Data Privacy Agent. 
+        Task Goal: {getattr(obs, 'current_task_goal', str(obs))}
+        Last Observation: {getattr(obs, 'response_data', str(obs))}
+        
+        Respond ONLY with a JSON object exactly like this:
+        {{"method": "GET/PATCH/DELETE", "endpoint": "/route", "payload": {{...}}}}
+        """
+        
+    
+        try:
             response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                response_format={"type": "json_object"} # Forces the LLM to return valid JSON
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0
             )
+            action_json = response.choices[0].message.content.strip()
             
-            # Extract and parse the action
-            try:
-                action_str = response.choices[0].message.content
-                action = json.loads(action_str)
-            except Exception as e:
-                # If parsing fails, create a dummy action so the script doesn't crash
-                action = {"method": "ERROR", "endpoint": "/parse_fail", "payload": {"error": str(e)}}
-
-            # Execute the action in the environment
-            next_obs, reward, done, info = env.step(action)
-            total_reward += float(reward)
+            # Clean potential markdown backticks from the LLM
+            if "```json" in action_json:
+                action_json = action_json.split("```json")[1].split("```")[0].strip()
+            elif "```" in action_json:
+                action_json = action_json.split("```")[1].split("```")[0].strip()
             
-            # --- [STEP] MANDATORY LOG ---
-            step_log = {
-                "step": step_count,
-                "action": action,
-                "observation": next_obs,
-                "reward": float(reward),
-                "done": bool(done),
-                "info": info
-            }
-            print(f"[STEP] {json.dumps(step_log)}")
-
-            # Append the interaction to the message history so the LLM remembers what it did
-            messages.append({"role": "assistant", "content": json.dumps(action)})
-            messages.append({
-                "role": "user", 
-                "content": f"Observation: {json.dumps(next_obs)}\nReward: {reward}\nDone: {done}"
-            })
+            action_dict = json.loads(action_json)
             
-            step_count += 1
+            # Take step in the environment
+            obs, reward, done, error = env.step(action_dict)
+            
+        except Exception as e:
+            # If the LLM returns bad JSON or the network fails, DO NOT CRASH.
+            # Log the error and give 0 reward for this step.
+            action_json = json.dumps({"error": f"Failed: {str(e)}"})
+            reward, done, error = 0.0, False, str(e)
 
-        # --- [END] MANDATORY LOG ---
-        end_log = {
-            "total_steps": step_count,
-            "total_reward": total_reward,
-            "success": done
-        }
-        print(f"[END] {json.dumps(end_log)}")
+        total_reward += float(reward)
+        rewards.append(f"{reward:.2f}")
+        
+        # 2. MANDATORY STEP LOG
+        print(f"[STEP] step={step} action={action_json} reward={reward:.2f} done={str(done).lower()} error={str(error).lower()}")
 
-    except Exception as e:
-        # Catch any other runtime errors so the script fails gracefully instead of crashing the grader
-        print(f"Unhandled exception during inference loop: {e}")
-        sys.exit(1)
+    # Determine success based on the sum of rewards
+    success = total_reward >= 0.99
+    
+    # 3. MANDATORY END LOG
+    print(f"[END] success={str(success).lower()} steps={step} score={total_reward:.3f} rewards={','.join(rewards)}")
 
 if __name__ == "__main__":
-    run_inference()
+    # If the grader doesn't specify a task, default to the first one
+    task = os.getenv("TASK_NAME", "easy_log_redaction")
+    run_inference(task)
