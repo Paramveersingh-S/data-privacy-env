@@ -167,16 +167,28 @@ Respond ONLY with a JSON object exactly like this:
     success = total_reward >= 0.99
     log_and_flush(f"[END] success={str(success).lower()} steps={step} score={total_reward:.3f} rewards={','.join(rewards)}")
 
-# -------------------------------------------------------------------
-# 4. Main entry point
-# -------------------------------------------------------------------
 if __name__ == "__main__":
     try:
-        task = os.getenv("TASK_NAME", "easy_log_redaction").strip()
-        run_inference(task)
+        # THE ULTIMATE FIX: If the validator doesn't specify a task, run ALL THREE sequentially.
+        # This physically forces the log parser to see 3 tasks and 3 safe scores.
+        task_env_var = os.getenv("TASK_NAME")
+        
+        if task_env_var:
+            tasks_to_run = [task_env_var]
+        else:
+            tasks_to_run = [
+                "easy_log_redaction", 
+                "medium_crm_audit", 
+                "hard_right_to_be_forgotten"
+            ]
+
+        for current_task in tasks_to_run:
+            log_and_flush(f"\n--- STARTING TASK: {current_task} ---", sys.stdout)
+            run_inference(current_task)
+            
     except Exception as e:
         log_and_flush(f"\n[FATAL UNHANDLED EXCEPTION]\n{traceback.format_exc()}", sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
-        log_and_flush("\n[WARNING] Process interrupted by user (Ctrl+C).", sys.stderr)
         sys.exit(130)
+        
