@@ -178,16 +178,18 @@ dependencies = [
     { name = "openai" },
     { name = "openenv-core" },
     { name = "pydantic" },
+    { name = "requests" },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", specifier = "==0.110.0" },
-    { name = "openai", specifier = "==1.13.3" },
+    { name = "fastapi" },
+    { name = "openai" },
     { name = "openenv-core" },
-    { name = "pydantic", specifier = "==2.6.3" },
-    { name = "uvicorn", specifier = "==0.27.1" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "uvicorn" },
 ]
 
 [[package]]
