@@ -3,4 +3,3 @@ uvicorn==0.27.1
 pydantic==2.6.3
 openai==1.13.3
 openenv-core
-openenv
