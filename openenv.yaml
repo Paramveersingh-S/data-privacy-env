@@ -2,3 +2,7 @@ name: data-privacy-env
 version: 1.0.0
 type: environment
 entry_point: server.app:app
+tasks:
+  - name: easy_log_redaction
+  - name: medium_crm_audit
+  - name: hard_right_to_be_forgotten

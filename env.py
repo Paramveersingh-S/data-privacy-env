@@ -164,7 +164,8 @@ class DataPrivacyEnv:
         # Ensure floating point math doesn't result in something like 0.999000001
         score = round(score, 3)
 
-        # Removed step penalty for clean 1.0 hackathon scoring
-        final_reward = max(0.0, score)
+        # --- THE FIX: CLAMP SCORE BETWEEN 0.01 AND 0.99 ---
+        # The validator strictly rejects 0.0 and 1.0
+        final_reward = max(0.01, min(0.99, score))
 
         return final_reward, done
