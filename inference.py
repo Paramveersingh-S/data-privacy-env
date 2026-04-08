@@ -2,20 +2,15 @@ import os
 import sys
 import json
 import traceback
+import requests
 
 def log_and_flush(message, stream=sys.stdout):
     stream.write(message + "\n")
     stream.flush()
 
 # -------------------------------------------------------------------
-# 1. Try to import real openenv, fall back to mock if missing
+# 1. Environment Setup (Mock or Real)
 # -------------------------------------------------------------------
-try:
-    from openai import OpenAI
-except ImportError as e:
-    log_and_flush(f"[CRITICAL ERROR] Failed to import OpenAI:\n{traceback.format_exc()}", sys.stderr)
-    sys.exit(1)
-
 MOCK_MODE = False
 try:
     from openenv.core import make
@@ -26,11 +21,7 @@ except ImportError:
         log_and_flush("[WARNING] openenv not found. Entering MOCK MODE (simulated environment).", sys.stderr)
         MOCK_MODE = True
 
-        # -------------------------------------------------------------------
-        # MOCK ENVIRONMENT for testing without openenv
-        # -------------------------------------------------------------------
         class MockDataPrivacyEnv:
-            """Minimal mock that simulates a data privacy task."""
             def __init__(self, task_name):
                 self.task_name = task_name
                 self.step_count = 0
@@ -49,38 +40,54 @@ except ImportError:
 
             def step(self, action):
                 self.step_count += 1
-                # Simulate a simple success condition: after 2 correct actions
                 if self.step_count >= 2:
                     self._done = True
                     reward = 1.0
                 else:
                     reward = 0.5
-                # Update mock response
                 self.response_data = '{"user": "[REDACTED]", "ssn": "[REDACTED]"}'
-                # Return (obs, reward, done, error) as in the original unpack logic
                 return self, reward, self._done, None
 
         def make(env_name):
-            """Mock make function that returns a MockDataPrivacyEnv instance."""
             log_and_flush(f"[MOCK] Creating simulated environment: {env_name}", sys.stderr)
             return MockDataPrivacyEnv(env_name.split('-')[-1] if '-' in env_name else env_name)
 
 # -------------------------------------------------------------------
-# 2. Inference function (unchanged logic, works with real or mock env)
+# 2. LLM Call Abstraction (Bypassing OpenAI SDK for Stability)
+# -------------------------------------------------------------------
+def call_llm(prompt, model_name, api_base, token):
+    """Uses standard HTTP requests to avoid fragile OpenAI SDK errors."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0
+    }
+    
+    # Ensure the endpoint URL is formatted correctly
+    url = api_base.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        url = f"{url}/chat/completions"
+        
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    response.raise_for_status() # Raises an exception if the API rejects the token
+    
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
+
+# -------------------------------------------------------------------
+# 3. Inference function
 # -------------------------------------------------------------------
 def run_inference(task_name):
-    API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-    MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-31B-it")
-    HF_TOKEN = os.getenv("HF_TOKEN")
+    API_BASE_URL = os.getenv("API_BASE_URL", "[https://router.huggingface.co/v1](https://router.huggingface.co/v1)").strip()
+    MODEL_NAME = os.getenv("MODEL_NAME", "google/gemma-4-31B-it").strip()
+    HF_TOKEN = os.getenv("HF_TOKEN", "").strip()
 
     if not HF_TOKEN:
         log_and_flush("[CRITICAL ERROR] HF_TOKEN environment variable not set.", sys.stderr)
-        sys.exit(1)
-
-    try:
-        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-    except Exception as e:
-        log_and_flush(f"[CRITICAL ERROR] Failed to init OpenAI client:\n{traceback.format_exc()}", sys.stderr)
         sys.exit(1)
 
     try:
@@ -104,33 +111,29 @@ def run_inference(task_name):
             task_goal = getattr(obs, 'current_task_goal', str(obs))
             response_data = getattr(obs, 'response_data', str(obs))
 
-            prompt = f"""
-            You are a Data Privacy Agent. 
-            Task Goal: {task_goal}
-            Last Observation: {response_data}
+            prompt = f"""You are a Data Privacy Agent. 
+Task Goal: {task_goal}
+Last Observation: {response_data}
+
+Respond ONLY with a JSON object exactly like this:
+{{"method": "GET/PATCH/DELETE", "endpoint": "/route", "payload": {{"key": "value"}}}}"""
+
+            # 1. Call LLM safely
+            action_text = call_llm(prompt, MODEL_NAME, API_BASE_URL, HF_TOKEN)
+
+            # 2. Safely extract JSON (Works even if the model adds markdown or chatter)
+            start_idx = action_text.find('{')
+            end_idx = action_text.rfind('}')
             
-            Respond ONLY with a JSON object exactly like this:
-            {{"method": "GET/PATCH/DELETE", "endpoint": "/route", "payload": {{...}}}}
-            """
-
-            response = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0
-            )
-            action_json = response.choices[0].message.content.strip()
-
-            # Clean markdown fences
-            if "```json" in action_json:
-                action_json = action_json.split("```json")[1].split("```")[0].strip()
-            elif "```" in action_json:
-                action_json = action_json.split("```")[1].split("```")[0].strip()
+            if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+                action_json = action_text[start_idx:end_idx+1]
+            else:
+                action_json = action_text # Fallback
 
             action_dict = json.loads(action_json)
-
             step_result = env.step(action_dict)
 
-            # Unpack environment return tuple
+            # 3. Unpack environment return tuple gracefully
             if len(step_result) == 4:
                 obs, reward, done, error = step_result
             elif len(step_result) == 5:
@@ -139,8 +142,12 @@ def run_inference(task_name):
                 error = info.get('error', None)
             else:
                 obs, reward, done = step_result[0], step_result[1], step_result[2]
-                error = f"Unexpected tuple size: {len(step_result)}"
+                error = None
 
+        except json.JSONDecodeError as e:
+            log_and_flush(f"[WARNING] Invalid JSON from model during step {step}: {e}", sys.stderr)
+            action_json = '{"error": "invalid json from model"}'
+            reward, done, error = 0.0, False, "JSON Parse Error"
         except Exception as e:
             log_and_flush(f"[WARNING] Exception during step {step}:\n{traceback.format_exc()}", sys.stderr)
             action_json = json.dumps({"error": f"Failed: {str(e)}"})
@@ -161,11 +168,11 @@ def run_inference(task_name):
     log_and_flush(f"[END] success={str(success).lower()} steps={step} score={total_reward:.3f} rewards={','.join(rewards)}")
 
 # -------------------------------------------------------------------
-# 3. Main entry point
+# 4. Main entry point
 # -------------------------------------------------------------------
 if __name__ == "__main__":
     try:
-        task = os.getenv("TASK_NAME", "easy_log_redaction")
+        task = os.getenv("TASK_NAME", "easy_log_redaction").strip()
         run_inference(task)
     except Exception as e:
         log_and_flush(f"\n[FATAL UNHANDLED EXCEPTION]\n{traceback.format_exc()}", sys.stderr)
