@@ -4,8 +4,5 @@ type: environment
 entry_point: server.app:app
 tasks:
   - name: easy_log_redaction
-    grader: grader.py
   - name: medium_crm_audit
-    grader: grader.py
   - name: hard_right_to_be_forgotten
-    grader: grader.py
